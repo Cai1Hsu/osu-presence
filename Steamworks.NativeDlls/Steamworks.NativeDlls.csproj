@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <SelfContained>false</SelfContained>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <DebugType>none</DebugType>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+ 
+  <ItemGroup>
+    <Content Include="runtimes\**\*.*">
+      <Pack>true</Pack>
+      <PackagePath>%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+</Project>
