@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
@@ -19,7 +20,7 @@ public partial class OsuHookDrawable : CompositeDrawable
     }
 
     [BackgroundDependencyLoader]
-    private void load(OsuGame game, IRulesetConfigCache rulesetConfigCache)
+    private void load(OsuGame game, IRulesetConfigCache rulesetConfigCache, IBindable<RulesetInfo>? currentRuleset)
     {
         var config = (PresenceConfigManager?)rulesetConfigCache.GetConfigFor(ruleset);
 
@@ -45,6 +46,23 @@ public partial class OsuHookDrawable : CompositeDrawable
             scheduler.Add(() =>
             {
                 game.Add(new PresenceProvider());
+            });
+        }
+
+        if (currentRuleset is Bindable<RulesetInfo> rulesetBindable)
+        {
+            // Prevent selecting this ruleset
+            rulesetBindable.BindValueChanged(v =>
+            {
+                if (v.NewValue.Equals(ruleset.RulesetInfo))
+                {
+                    var disabled = rulesetBindable.Disabled;
+                    rulesetBindable.Disabled = false;
+
+                    rulesetBindable.Value = v.OldValue;
+
+                    rulesetBindable.Disabled = disabled;
+                }
             });
         }
     }
