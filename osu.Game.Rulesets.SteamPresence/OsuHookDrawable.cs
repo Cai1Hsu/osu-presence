@@ -30,23 +30,17 @@ public partial class OsuHookDrawable : CompositeDrawable
             return;
         }
 
-        if (game.ChildrenOfType<PresenceProvider>().Any())
+        if (game.Dependencies.TryGet<PresenceProvider>(out _))
             return;
 
-        var launchMode = config.Get<LaunchMode>(PresenceRulesetSettings.LaunchMode);
+        var autoStart = config.Get<bool>(PresenceRulesetSettings.AutoStart);
 
-        if (launchMode == LaunchMode.AutoStart)
+        if (autoStart)
         {
-            if (game.ChildrenOfType<PresenceProvider>().Any())
-                return;
-
             // use the game's scheduler to ensure code executed on the update thread
             var scheduler = GetScheduler(game);
 
-            scheduler.Add(() =>
-            {
-                game.Add(new PresenceProvider());
-            });
+            scheduler.Add(() => game.InjectPresenceProvider(out _));
         }
 
         if (currentRuleset is Bindable<RulesetInfo> rulesetBindable)

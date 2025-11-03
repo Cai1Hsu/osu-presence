@@ -1,8 +1,8 @@
 namespace osu.Game.Rulesets.SteamPresence;
 
-public enum LaunchMode
+public enum LaunchStates
 {
-    AutoStart,
-    Manual,
     Off,
+    Connecting,
+    Connected,
 }

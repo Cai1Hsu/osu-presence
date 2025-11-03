@@ -1,9 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
-using osu.Framework.Allocation;
-using osu.Framework.Graphics;
-using osu.Framework.Logging;
-using osu.Framework.Threading;
 using osu.Game.Configuration;
 using osu.Game.Rulesets.Configuration;
 
@@ -20,7 +14,7 @@ public partial class PresenceConfigManager : RulesetConfigManager<PresenceRulese
     {
         base.InitialiseDefaults();
 
-        SetDefault(PresenceRulesetSettings.LaunchMode, LaunchMode.AutoStart);
+        SetDefault(PresenceRulesetSettings.AutoStart, true);
         SetDefault(PresenceRulesetSettings.RetrySteamConnection, true);
     }
 }

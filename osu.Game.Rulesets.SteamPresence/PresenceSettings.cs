@@ -4,11 +4,10 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Localisation;
-using osu.Framework.Testing;
+using osu.Framework.Logging;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Dialog;
 using osu.Game.Overlays.Settings;
-using osuTK;
 
 namespace osu.Game.Rulesets.SteamPresence;
 
@@ -23,74 +22,79 @@ public partial class PresenceSettings : RulesetSettingsSubsection
     [Resolved]
     private OsuGame game { get; set; } = null!;
 
-    private Bindable<LaunchMode> launchMode = null!;
+    private Bindable<bool> autoStart = null!;
 
     [BackgroundDependencyLoader]
-    private void load()
+    private void load(PresenceProvider? presenceProvider)
     {
         var config = (PresenceConfigManager)Config;
 
-        launchMode = config.GetBindable<LaunchMode>(PresenceRulesetSettings.LaunchMode);
+        autoStart = config.GetBindable<bool>(PresenceRulesetSettings.AutoStart);
         var attemptConnect = config.GetBindable<bool>(PresenceRulesetSettings.RetrySteamConnection);
 
         Children = new Drawable[]
         {
-            new RestartRequiredSetting<LaunchMode>(launchMode)
+            new RestartRequiredSetting<bool>(autoStart)
             {
-                Content = new SettingsEnumDropdown<LaunchMode>()
+                Content = new SettingsCheckbox()
                 {
-                    LabelText = "Steam presence launch mode",
-                    Current = launchMode,
+                    LabelText = "Start Steam Presence on game launch",
+                    Current = autoStart,
                     Keywords = new[] { "steam", "presence", "status", "enable" },
                 }
             },
             new SettingsCheckbox()
             {
-                LabelText = "Attempt to connect to Steam if not running",
+                LabelText = "Try to connect to Steam occasionally if connection fails",
                 Current = attemptConnect,
                 Keywords = new[] { "steam", "presence", "status", "connect" },
             },
-            tryLaunchButton = new SettingsButton()
+            tryLaunchButton = new TryLaunchButton()
             {
                 Text = "Launch Steam Presence",
                 Action = tryLaunchSteamPresence,
-            }
+                Keywords = new[] { "steam", "presence", "status", "launch" },
+            },
         };
 
-        var isLaunched = IsSteamPresenceLaunched();
+        this.presenceProvider = presenceProvider;
+        var steamConnector = presenceProvider?.SteamConnector;
 
-        if (isLaunched)
-            launched();
+        tryLaunchButton.LaunchState.Value = steamConnector switch
+        {
+            null => LaunchStates.Off,
+            _ when steamConnector.IsInitialized => LaunchStates.Connected,
+            _ => LaunchStates.Connecting,
+        };
     }
 
-    private SettingsButton? tryLaunchButton;
+    private TryLaunchButton tryLaunchButton = null!;
 
-    private void launched()
-    {
-        if (tryLaunchButton is null)
-            return;
-
-        tryLaunchButton.Enabled.Value = false;
-        tryLaunchButton.TooltipText = "Steam presence has already launched";
-    }
+    private PresenceProvider? presenceProvider;
 
     private void tryLaunchSteamPresence()
     {
-        game.Add(new PresenceProvider());
+        Debug.Assert(presenceProvider is null);
 
-        if (launchMode.Value == LaunchMode.Off)
+        game.InjectPresenceProvider(out presenceProvider);
+
+        presenceProvider.Scheduler.Add(() =>
         {
-            launchMode.Value = LaunchMode.Manual;
-        }
-
-        launched();
+            if (presenceProvider.SteamConnector.IsInitialized)
+            {
+                tryLaunchButton.LaunchState.Value = LaunchStates.Connected;
+            }
+            else
+            {
+                tryLaunchButton.LaunchState.Value = LaunchStates.Connecting;
+                Logger.Log("Can not connect to Steam, is Steam running?", LoggingTarget.Information, LogLevel.Important);
+            }
+        });
     }
-
-    private bool launchedCache = false;
 
     private bool IsSteamPresenceLaunched()
     {
-        return !launchedCache ? launchedCache = game.ChildrenOfType<PresenceProvider>().Any() : launchedCache;
+        return game.Dependencies.TryGet<PresenceProvider>(out _);
     }
 
     private partial class RestartRequiredSetting<T> : CompositeDrawable
@@ -148,6 +152,46 @@ public partial class PresenceSettings : RulesetSettingsSubsection
         {
             game?.RestartAppWhenExited();
             game?.AttemptExit();
+        }
+    }
+
+    private partial class TryLaunchButton : SettingsButton
+    {
+        public Bindable<LaunchStates> LaunchState { get; set; } = new Bindable<LaunchStates>(LaunchStates.Off);
+
+        public TryLaunchButton()
+        {
+            LaunchState.BindValueChanged(_ => updateState(), true);
+        }
+
+        private void updateState()
+        {
+            switch (LaunchState.Value)
+            {
+                case LaunchStates.Off:
+                    Text = "Launch Steam Presence";
+                    Enabled.Value = true;
+                    TooltipText = "Steam Presence is not running.";
+                    break;
+                case LaunchStates.Connecting:
+                    Text = "Try to connect to Steam";
+                    Enabled.Value = true;
+                    TooltipText = "Steam Presence is launched but not connected to Steam.";
+                    break;
+                case LaunchStates.Connected:
+                    Text = "Steam Presence Launched";
+                    Enabled.Value = false;
+                    TooltipText = "Steam Presence is currently running.";
+                    break;
+            }
+
+            SpriteText.FlashColour(LaunchState.Value switch
+            {
+                LaunchStates.Off => Colour4.Red,
+                LaunchStates.Connecting => Colour4.Orange,
+                LaunchStates.Connected => Colour4.Green,
+                _ => Colour4.White,
+            }, 500);
         }
     }
 }
