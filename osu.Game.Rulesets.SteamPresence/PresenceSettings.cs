@@ -87,14 +87,9 @@ public partial class PresenceSettings : RulesetSettingsSubsection
             else
             {
                 tryLaunchButton.LaunchState.Value = LaunchStates.Connecting;
-                Logger.Log("Can not connect to Steam, is Steam running?", LoggingTarget.Information, LogLevel.Important);
+                Logger.Log("Could not connect to Steam, is Steam running?", LoggingTarget.Information, LogLevel.Important);
             }
         });
-    }
-
-    private bool IsSteamPresenceLaunched()
-    {
-        return game.Dependencies.TryGet<PresenceProvider>(out _);
     }
 
     private partial class RestartRequiredSetting<T> : CompositeDrawable
