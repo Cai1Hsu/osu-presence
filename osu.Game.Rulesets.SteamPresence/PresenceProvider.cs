@@ -17,6 +17,10 @@ public partial class PresenceProvider : CompositeDrawable
 {
     private SteamConnector steamConnector;
 
+    public SteamConnector SteamConnector => steamConnector;
+
+    public new Scheduler Scheduler => base.Scheduler;
+
     public PresenceProvider()
     {
         InternalChild = steamConnector = new SteamConnector();
