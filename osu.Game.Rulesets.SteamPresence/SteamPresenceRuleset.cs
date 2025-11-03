@@ -1,6 +1,11 @@
-﻿using osu.Framework.Graphics;
+﻿using osu.Framework.Allocation;
+using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
+using osu.Framework.Logging;
 using osu.Game.Beatmaps;
+using osu.Game.Configuration;
+using osu.Game.Overlays.Settings;
+using osu.Game.Rulesets.Configuration;
 using osu.Game.Rulesets.Difficulty;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.UI;
@@ -10,12 +15,13 @@ namespace osu.Game.Rulesets.SteamPresence;
 
 public class SteamPresenceRuleset : Ruleset
 {
+    public override string PlayingVerb => "Afking on Steam";
     public override string Description => "Add steam presence to your osu! experience";
 
     public override string ShortName => "Steam";
 
     public override IBeatmapConverter CreateBeatmapConverter(IBeatmap beatmap)
-        =>  new PresenceBeatmapConverter(beatmap, this);
+        => new PresenceBeatmapConverter(beatmap, this);
 
     public override DifficultyCalculator CreateDifficultyCalculator(IWorkingBeatmap beatmap)
         => new PresenceDifficultyCalculator(RulesetInfo, beatmap);
@@ -26,7 +32,13 @@ public class SteamPresenceRuleset : Ruleset
     public override IEnumerable<Mod> GetModsFor(ModType type)
         => Array.Empty<Mod>();
 
-    public override Drawable CreateIcon() => new OsuHookDrawable
+    public override RulesetSettingsSubsection? CreateSettings()
+    => new PresenceSettings(this);
+
+    public override IRulesetConfigManager? CreateConfig(SettingsStore? settings)
+        => settings is null ? null : new PresenceConfigManager(settings, RulesetInfo);
+
+    public override Drawable CreateIcon() => new OsuHookDrawable(this)
     {
         Content = new SpriteIcon
         {

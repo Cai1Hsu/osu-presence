@@ -19,9 +19,6 @@ public partial class PresenceProvider : CompositeDrawable
 
     public PresenceProvider()
     {
-        RelativeSizeAxes = Axes.Both;
-        AlwaysPresent = true;
-
         InternalChild = steamConnector = new SteamConnector();
     }
 

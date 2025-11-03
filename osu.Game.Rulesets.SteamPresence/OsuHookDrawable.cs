@@ -1,32 +1,56 @@
+using System.Runtime.CompilerServices;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Logging;
+using osu.Framework.Testing;
+using osu.Framework.Threading;
+using osu.Game.Configuration;
 
 namespace osu.Game.Rulesets.SteamPresence;
 
 public partial class OsuHookDrawable : CompositeDrawable
 {
-    [BackgroundDependencyLoader]
-    private void load(OsuGame? game)
+    private Ruleset ruleset;
+
+    public OsuHookDrawable(Ruleset ruleset)
     {
-        if (game is null)
+        this.ruleset = ruleset;
+    }
+
+    [BackgroundDependencyLoader]
+    private void load(OsuGame game, IRulesetConfigCache rulesetConfigCache)
+    {
+        var config = (PresenceConfigManager?)rulesetConfigCache.GetConfigFor(ruleset);
+
+        if (config is null)
         {
-            Logger.Log($"OsuGame instance is null in {nameof(OsuHookDrawable)} load.", LoggingTarget.Runtime, LogLevel.Important);
+            Logger.Log($"config is null", LoggingTarget.Runtime, LogLevel.Important);
             return;
         }
 
-        try
-        {
-            var presenceProvider = new PresenceProvider();
+        if (game.ChildrenOfType<PresenceProvider>().Any())
+            return;
 
-            Scheduler.Add(() => game.Add(presenceProvider));
-        }
-        catch (Exception e)
+        var launchMode = config.Get<LaunchMode>(PresenceRulesetSettings.LaunchMode);
+
+        if (launchMode == LaunchMode.AutoStart)
         {
-            Logger.Log(e.Message, LoggingTarget.Runtime, LogLevel.Error);
+            if (game.ChildrenOfType<PresenceProvider>().Any())
+                return;
+
+            // use the game's scheduler to ensure code executed on the update thread
+            var scheduler = GetScheduler(game);
+
+            scheduler.Add(() =>
+            {
+                game.Add(new PresenceProvider());
+            });
         }
     }
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Scheduler")]
+    private extern static Scheduler GetScheduler(Drawable drawable);
 
     private Drawable? content;
 

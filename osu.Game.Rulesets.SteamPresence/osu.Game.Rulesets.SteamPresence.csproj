@@ -4,13 +4,14 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <SelfContained>false</SelfContained>
-    <SuppressDependenciesWhenPublishing>true</SuppressDependenciesWhenPublishing>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="ppy.osu.Game" Version="2025.1029.0" />
-    <PackageReference Include="Steamworks.NET" Version="2024.8.0" />
+    <PackageReference Include="Steamworks.NET" Version="2024.8.0">
+      <ExcludeAssets>runtime;native;contentfiles;analyzers;build</ExcludeAssets>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>

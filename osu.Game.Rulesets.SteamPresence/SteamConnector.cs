@@ -2,9 +2,10 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using osu.Framework;
+using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Logging;
-using osu.Game.Online.Multiplayer;
 using Steamworks;
 
 namespace osu.Game.Rulesets.SteamPresence;
@@ -13,14 +14,20 @@ public partial class SteamConnector : Drawable
 {
     public bool IsInitialized => initialized;
     private volatile bool initialized;
-    private bool retryInitialize = true;
+    private bool canRetryInitialize = true;
 
     private const string appid = "607260"; // mcosu's Steam AppID
 
-    protected override void LoadComplete()
-    {
-        base.LoadComplete();
+    private Bindable<bool> doRetryConnect = null!;
 
+    [BackgroundDependencyLoader]
+    private void load(IRulesetConfigCache rulesetConfigCache)
+    {
+        var config = (PresenceConfigManager?)rulesetConfigCache.GetConfigFor(new SteamPresenceRuleset());
+        doRetryConnect = config?.GetBindable<bool>(PresenceRulesetSettings.RetrySteamConnection)!;
+
+        Debug.Assert(doRetryConnect is not null);
+    
         try
         {
             loadDlls();
@@ -32,7 +39,7 @@ public partial class SteamConnector : Drawable
         }
         catch (Exception e)
         {
-            retryInitialize = false;
+            canRetryInitialize = false;
             Logger.Log($"Failed to load Steamworks.NET DLLs: {e.Message}", LoggingTarget.Runtime, LogLevel.Error);
         }
     }
@@ -135,13 +142,10 @@ public partial class SteamConnector : Drawable
 
             var isSteamRunning = SteamAPI.IsSteamRunning();
 
-            Scheduler.Add(() =>
-            {
-                if (!isSteamRunning)
-                    Logger.Log("Steam client is not running, steam presence may not work.", LoggingTarget.Runtime, LogLevel.Important);
-                else
-                    Logger.Log($"Failed to initialize steamworks, {e.Message}", LoggingTarget.Runtime, LogLevel.Error);
-            });
+            if (!isSteamRunning)
+                Logger.Log("Steam client is not running, steam presence may not work.", LoggingTarget.Runtime, LogLevel.Important);
+            else
+                Logger.Log($"Failed to initialize steamworks, {e.Message}", LoggingTarget.Runtime, LogLevel.Error);
         }
         catch { }
 
@@ -187,7 +191,7 @@ public partial class SteamConnector : Drawable
         {
             SteamAPI.RunCallbacks();
         }
-        else if (retryInitialize)
+        else if (canRetryInitialize && doRetryConnect.Value)
         {
             if (Clock.CurrentTime - lastTryInitializeTime < tryInitializeThrottleTime)
                 return;
