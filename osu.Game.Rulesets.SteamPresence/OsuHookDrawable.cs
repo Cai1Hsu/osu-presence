@@ -35,12 +35,12 @@ public partial class OsuHookDrawable : CompositeDrawable
 
         var autoStart = config.Get<bool>(PresenceRulesetSettings.AutoStart);
 
+        // use the game's scheduler to ensure code executed on the update thread
+        var scheduler = GetScheduler(game);
+
         if (autoStart)
         {
-            // use the game's scheduler to ensure code executed on the update thread
-            var scheduler = GetScheduler(game);
-
-            scheduler.Add(() => game.InjectPresenceProvider(out _));
+            scheduler.Add(() => game.InjectDependency(out _, () => new PresenceProvider()));
         }
 
         if (currentRuleset is Bindable<RulesetInfo> rulesetBindable)

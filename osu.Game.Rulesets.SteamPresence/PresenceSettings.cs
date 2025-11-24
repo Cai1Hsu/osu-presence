@@ -76,9 +76,11 @@ public partial class PresenceSettings : RulesetSettingsSubsection
     {
         Debug.Assert(presenceProvider is null);
 
-        game.InjectPresenceProvider(out presenceProvider);
+        game.InjectDependency(out presenceProvider, () => new PresenceProvider());
 
-        presenceProvider.Scheduler.Add(() =>
+        Debug.Assert(presenceProvider is not null);
+
+        presenceProvider?.Scheduler.Add(() =>
         {
             if (presenceProvider.SteamConnector.IsInitialized)
             {
