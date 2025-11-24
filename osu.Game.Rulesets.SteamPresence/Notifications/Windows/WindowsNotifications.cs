@@ -30,12 +30,8 @@ public partial class WindowsNotifications : Drawable
     private readonly Dictionary<Guid, WindowsToast> notifications = new();
     private readonly Dictionary<OsuNotification, Guid> notificationLookup = new();
     private readonly Dictionary<Guid, Action> activationLookup = new();
-    private readonly DefaultToastLifecycleManager defaultToastManager;
-
-    public WindowsNotifications()
-    {
-        defaultToastManager = new DefaultToastLifecycleManager(this, () => notifier, defaultToastLifetime);
-    }
+    
+    private DefaultToastLifecycleManager defaultToastManager = null!;
 
     private class ToastProperty(ToastContentBuilder builder)
     {
@@ -153,7 +149,7 @@ public partial class WindowsNotifications : Drawable
 
             toastNotification.Failed += (t, _) => expire(t);
 
-            Action display = () =>
+            void display()
             {
                 toastNotification.SuppressPopup = windowMode.Value switch
                 {
@@ -163,7 +159,7 @@ public partial class WindowsNotifications : Drawable
                 };
 
                 notifier?.Show(toastNotification);
-            };
+            }
 
             scheduleToastDisplay(toastInfo, toastNotification, display);
         }
@@ -381,6 +377,8 @@ public partial class WindowsNotifications : Drawable
 
         ToastNotificationManagerCompat.OnActivated += OnActivated;
         notifier = ToastNotificationManagerCompat.CreateToastNotifier();
+
+        defaultToastManager = new DefaultToastLifecycleManager(this, notifier, defaultToastLifetime);
 
         unreadCount = notificationOverlay.UnreadCount.GetBoundCopy();
 
@@ -607,17 +605,17 @@ public partial class WindowsNotifications : Drawable
     private sealed class DefaultToastLifecycleManager
     {
         private readonly WindowsNotifications owner;
-        private readonly Func<ToastNotifierCompat?> notifierProvider;
+        private readonly ToastNotifierCompat? notifier;
         private readonly double defaultLifetime;
         private readonly Queue<DefaultToastContext> queue = new();
 
         private DefaultToastContext? active;
         private double activeShownAt;
 
-        public DefaultToastLifecycleManager(WindowsNotifications owner, Func<ToastNotifierCompat?> notifierProvider, double lifetime)
+        public DefaultToastLifecycleManager(WindowsNotifications owner, ToastNotifierCompat? notifier, double lifetime)
         {
             this.owner = owner;
-            this.notifierProvider = notifierProvider;
+            this.notifier = notifier;
             this.defaultLifetime = lifetime;
         }
 
@@ -633,7 +631,14 @@ public partial class WindowsNotifications : Drawable
 
         public void Process()
         {
-            processInternal();
+            var elapsed = owner.Clock.CurrentTime - activeShownAt;
+
+            if (active is null || (queue.Count > 0 && elapsed >= defaultLifetime))
+            {
+                if (!hideActive())
+                    // wait a frame to ensure previous expiration is processed
+                    activateNext();
+            }
         }
 
         private void enqueueInternal(DefaultToastContext context)
@@ -657,17 +662,6 @@ public partial class WindowsNotifications : Drawable
             }
 
             removeFromQueue(toastId);
-        }
-
-        private void processInternal()
-        {
-            var elapsed = owner.Clock.CurrentTime - activeShownAt;
-
-            if (active is null || (queue.Count > 0 && elapsed >= defaultLifetime))
-            {
-                if (!hideActive())
-                    activateNext();
-            }
         }
 
         private void activateNext()
@@ -694,7 +688,6 @@ public partial class WindowsNotifications : Drawable
                 return false;
 
             var current = active;
-            var notifier = notifierProvider();
 
             try
             {
