@@ -17,7 +17,6 @@ using OsuNotification = osu.Game.Overlays.Notifications.Notification;
 using NotificationData = Windows.UI.Notifications.NotificationData;
 using Windows.UI.Notifications;
 using osu.Framework.Configuration;
-using osu.Game.Extensions;
 using osu.Framework.Localisation;
 
 namespace osu.Game.Rulesets.SteamPresence.Notifications.Windows;
@@ -26,15 +25,22 @@ public partial class WindowsNotifications : Drawable
 {
     private const string toast_group = "osu-lazer-presence";
 
+    private const double defaultToastLifetime = 600;
+
     private readonly Dictionary<Guid, WindowsToast> notifications = new();
     private readonly Dictionary<OsuNotification, Guid> notificationLookup = new();
     private readonly Dictionary<Guid, Action> activationLookup = new();
+    private readonly DefaultToastLifecycleManager defaultToastManager;
+
+    public WindowsNotifications()
+    {
+        defaultToastManager = new DefaultToastLifecycleManager(this, () => notifier, defaultToastLifetime);
+    }
 
     private class ToastProperty(ToastContentBuilder builder)
     {
         public ToastContentBuilder Builder { get; init; } = builder;
         public Guid BodyId { get; set; } = Guid.NewGuid();
-        public bool IsImportant { get; set; }
         public bool KeepOnScreen { get; set; }
         public List<Guid> ActionIds { get; } = new();
     }
@@ -47,10 +53,7 @@ public partial class WindowsNotifications : Drawable
 
     public async Task OnNotification(OsuNotification notification)
     {
-        ToastProperty prop = new ToastProperty(new ToastContentBuilder())
-        {
-            IsImportant = notification.IsImportant,
-        };
+        ToastProperty prop = new ToastProperty(new ToastContentBuilder());
 
         var toastInfo = new WindowsToast(prop, notification);
 
@@ -64,12 +67,20 @@ public partial class WindowsNotifications : Drawable
 
         prop.Builder.AddText(localisation.GetLocalisedString(notification.Text) ?? notification.Text.ToString());
 
+        var notificationType = notification.GetType();
+        var notificationTypeName = notificationType.FullName;
+
+        if (notification.IsImportant
+            && !notification.Transient
+            // We assume pure simplenotifications are all not so important
+            && notificationType != typeof(SimpleNotification))
+            prop.Builder.SetToastScenario(ToastScenario.Reminder);
+
         if (notification is UserAvatarNotification userAvatarNotification)
             await OnUserAvatarNotification(prop, userAvatarNotification);
+
         if (notification is ProgressNotification progressNotification)
             OnProgressNotification(prop, progressNotification);
-
-        var notificationTypeName = notification.GetType().FullName;
 
         if (notificationTypeName == $"{typeof(MultiplayerClient).FullName}+MultiplayerInvitationNotification")
             OnMultiplayerInvitationNotification(prop, notification);
@@ -79,9 +90,6 @@ public partial class WindowsNotifications : Drawable
 
         if (notificationTypeName == $"{typeof(ChannelManager).FullName}+MentionNotification")
             OnMentionNotification(prop, notification);
-
-        if (notification.IsImportant)
-            prop.Builder.SetToastScenario(ToastScenario.Reminder);
 
         prop.Builder
             .SetToastDuration(ToastDuration.Short)
@@ -102,6 +110,8 @@ public partial class WindowsNotifications : Drawable
         var xml = prop.Builder.GetXml();
         bool isDefaultScenario = prop.Builder.Content.Scenario == ToastScenario.Default;
 
+        toastInfo.IsDefaultScenario = isDefaultScenario;
+
         void show()
         {
             var toastNotification = new ToastNotification(xml);
@@ -111,22 +121,11 @@ public partial class WindowsNotifications : Drawable
             if (initialData is not null)
                 toastNotification.Data = initialData;
 
-            toastNotification.Priority = prop.IsImportant
-                ? ToastNotificationPriority.High
-                : ToastNotificationPriority.Default;
-
-            void expire(ToastNotification t)
+            void expire(ToastNotification t) => Scheduler.Add(() =>
             {
-                Scheduler.Add(() =>
-                {
-                    if (notification.Transient)
-                        t.ExpirationTime = DateTime.Now;
-
-                    removeToast(notification);
-                    removeToast(prop.BodyId); // in case notification reference was lost
-
-                });
-            }
+                removeToast(notification);
+                removeToast(prop.BodyId); // in case notification reference was lost
+            });
 
             toastNotification.Activated += (t, _) =>
             {
@@ -150,9 +149,11 @@ public partial class WindowsNotifications : Drawable
                 }
             };
 
+            toastNotification.ExpiresOnReboot = false;
+
             toastNotification.Failed += (t, _) => expire(t);
 
-            Scheduler.Add(() =>
+            Action display = () =>
             {
                 toastNotification.SuppressPopup = windowMode.Value switch
                 {
@@ -162,8 +163,9 @@ public partial class WindowsNotifications : Drawable
                 };
 
                 notifier?.Show(toastNotification);
-            });
+            };
 
+            scheduleToastDisplay(toastInfo, toastNotification, display);
         }
 
         show();
@@ -209,7 +211,8 @@ public partial class WindowsNotifications : Drawable
 
         prop.Builder
             .AddText(message.Content)
-            .AddAttributionText($"{message.Sender.Username} mentioned you in {channel.Name}");
+            .AddAttributionText($"{message.Sender.Username} mentioned you in {channel.Name}")
+            .SetToastScenario(ToastScenario.Default);
     }
 
     private void OnPrivateMessageNotification(ToastProperty prop, OsuNotification notification)
@@ -221,7 +224,8 @@ public partial class WindowsNotifications : Drawable
 
         prop.Builder
             .AddText(message.Content)
-            .AddAttributionText($"From {message.Sender.Username}");
+            .AddAttributionText($"Message from {message.Sender.Username}")
+            .SetToastScenario(ToastScenario.Default);
     }
 
     private void OnMultiplayerInvitationNotification(ToastProperty prop, OsuNotification notification)
@@ -241,11 +245,14 @@ public partial class WindowsNotifications : Drawable
                     .SetContent("Join")
                     // use the body's activation
                     .AddArgument("id", prop.BodyId.ToString())
-                    .SetBackgroundActivation());
+                    .SetBackgroundActivation())
+                .AddButton(new ToastButtonDismiss());
 
             RegisterAction(prop, copyActionId, () => clipboard.SetText(password));
             prop.KeepOnScreen = true;
         }
+
+        prop.Builder.SetToastScenario(ToastScenario.Reminder);
     }
 
     private string? TryFindPasswordFromDelegate(Delegate? del)
@@ -278,9 +285,10 @@ public partial class WindowsNotifications : Drawable
             .FirstOrDefault();
     }
 
-    private void OnProgressNotification(ToastProperty toast, ProgressNotification progressNotification)
+    private void OnProgressNotification(ToastProperty toast, ProgressNotification _progressNotification)
     {
-        toast.Builder.AddProgressBar();
+        toast.Builder.AddProgressBar()
+            .AddButton(new ToastButtonDismiss("Hide"));
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Avatar")]
@@ -290,6 +298,8 @@ public partial class WindowsNotifications : Drawable
     private static extern ref osu.Game.Users.IUser GetIUser(DrawableAvatar notification);
 
     private HttpClient httpClient = new();
+
+    private HashSet<int> DownloadedAvatars = new();
 
     private async Task OnUserAvatarNotification(ToastProperty prop, UserAvatarNotification notification)
     {
@@ -308,7 +318,9 @@ public partial class WindowsNotifications : Drawable
 
         var avatarFileName = Path.Combine(tempFolder, $"{id}.png");
 
-        if (id != "default" || !File.Exists(avatarFileName))
+        if (id != "default"
+            || !File.Exists(avatarFileName)
+            || !DownloadedAvatars.Contains(user?.OnlineID ?? -1))
         {
             using var response = await httpClient.GetAsync(avatarUrl);
 
@@ -319,6 +331,8 @@ public partial class WindowsNotifications : Drawable
                     using var fs = new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.None);
                     using var contentStream = await response.Content.ReadAsStreamAsync();
                     await contentStream.CopyToAsync(fs);
+
+                    DownloadedAvatars.Add(user?.OnlineID ?? -1);
                 }
                 catch (Exception)
                 {
@@ -384,7 +398,8 @@ public partial class WindowsNotifications : Drawable
         frontNotifications.Clear();
         frontNotifications.UnionWith(notificationOverlay.AllNotifications);
 
-        foreach (var notification in frontNotifications)
+        // be aware of order!
+        foreach (var notification in notificationOverlay.AllNotifications)
         {
             if (backNotifications.Contains(notification))
                 continue;
@@ -407,6 +422,8 @@ public partial class WindowsNotifications : Drawable
     protected override void Update()
     {
         base.Update();
+
+        defaultToastManager.Process();
 
         foreach (var toast in notifications.Values)
         {
@@ -485,6 +502,9 @@ public partial class WindowsNotifications : Drawable
 
         foreach (var actionId in toast.Property.ActionIds)
             activationLookup.Remove(actionId);
+
+        if (toast.IsDefaultScenario)
+            defaultToastManager.OnToastRemoved(id);
     }
 
     private void removeToast(OsuNotification notification)
@@ -523,6 +543,18 @@ public partial class WindowsNotifications : Drawable
         _ => string.Empty
     };
 
+    private void scheduleToastDisplay(WindowsToast toast, ToastNotification toastNotification, Action display)
+    {
+        if (!toast.IsDefaultScenario)
+        {
+            Scheduler.Add(display);
+            return;
+        }
+
+        var context = new DefaultToastContext(toast.Id, toastNotification, display);
+        defaultToastManager.Enqueue(context);
+    }
+
     private sealed class WindowsToast
     {
         public WindowsToast(ToastProperty prop, OsuNotification notification)
@@ -547,5 +579,170 @@ public partial class WindowsNotifications : Drawable
         public ProgressNotificationState? LastState { get; set; }
 
         public ToastProperty Property { get; set; }
+
+        public bool IsDefaultScenario { get; set; }
+    }
+
+    private sealed class DefaultToastContext
+    {
+        private readonly Action display;
+
+        public DefaultToastContext(Guid id, ToastNotification toastNotification, Action display)
+        {
+            Id = id;
+            ToastNotification = toastNotification;
+            this.display = display;
+        }
+
+        public Guid Id { get; }
+
+        public ToastNotification ToastNotification { get; }
+
+        public void Display()
+        {
+            display();
+        }
+    }
+
+    private sealed class DefaultToastLifecycleManager
+    {
+        private readonly WindowsNotifications owner;
+        private readonly Func<ToastNotifierCompat?> notifierProvider;
+        private readonly double defaultLifetime;
+        private readonly Queue<DefaultToastContext> queue = new();
+
+        private DefaultToastContext? active;
+        private double activeShownAt;
+
+        public DefaultToastLifecycleManager(WindowsNotifications owner, Func<ToastNotifierCompat?> notifierProvider, double lifetime)
+        {
+            this.owner = owner;
+            this.notifierProvider = notifierProvider;
+            this.defaultLifetime = lifetime;
+        }
+
+        public void Enqueue(DefaultToastContext context)
+        {
+            owner.Scheduler.Add(() => enqueueInternal(context));
+        }
+
+        public void OnToastRemoved(Guid toastId)
+        {
+            handleRemoval(toastId);
+        }
+
+        public void Process()
+        {
+            processInternal();
+        }
+
+        private void enqueueInternal(DefaultToastContext context)
+        {
+            if (active is null)
+            {
+                activate(context);
+                return;
+            }
+
+            queue.Enqueue(context);
+        }
+
+        private void handleRemoval(Guid toastId)
+        {
+            if (active?.Id == toastId)
+            {
+                active = null;
+                activateNext();
+                return;
+            }
+
+            removeFromQueue(toastId);
+        }
+
+        private void processInternal()
+        {
+            var elapsed = owner.Clock.CurrentTime - activeShownAt;
+
+            if (active is null || (queue.Count > 0 && elapsed >= defaultLifetime))
+            {
+                if (!hideActive())
+                    activateNext();
+            }
+        }
+
+        private void activateNext()
+        {
+            if (queue.Count == 0)
+                return;
+
+            var next = queue.Dequeue();
+            activate(next);
+        }
+
+        private void activate(DefaultToastContext context)
+        {
+            active = context;
+            var now = owner.Clock.CurrentTime;
+            activeShownAt = now;
+
+            context.Display();
+        }
+
+        private bool hideActive()
+        {
+            if (active is null)
+                return false;
+
+            var current = active;
+            var notifier = notifierProvider();
+
+            try
+            {
+                // make a copy and send it to notification center without popup
+                var shadow = new ToastNotification(current.ToastNotification.Content)
+                {
+                    Tag = Guid.NewGuid().ToString(), // prevent re-hiding
+                    Group = current.ToastNotification.Group,
+                    SuppressPopup = true,
+                    Priority = ToastNotificationPriority.Default,
+                    ExpiresOnReboot = false,
+                    Data = current.ToastNotification.Data,
+                };
+
+                notifier?.Hide(current.ToastNotification);
+
+                // Although the document says Hide method sends the toast to notification center,
+                // in practice it just removes the toast.
+                // So we send a shadow toast to notification center to simulate the expected behavior.
+                notifier?.Show(shadow);
+            }
+            catch (Exception) { }
+
+            active = null;
+
+            return true;
+        }
+
+        private void removeFromQueue(Guid toastId)
+        {
+            if (queue.Count == 0)
+                return;
+
+            int count = queue.Count;
+            var retained = new Queue<DefaultToastContext>(count);
+
+            while (queue.Count > 0)
+            {
+                var context = queue.Dequeue();
+
+                if (context.Id == toastId)
+                    continue;
+
+                retained.Enqueue(context);
+            }
+
+            while (retained.Count > 0)
+                queue.Enqueue(retained.Dequeue());
+        }
     }
 }
