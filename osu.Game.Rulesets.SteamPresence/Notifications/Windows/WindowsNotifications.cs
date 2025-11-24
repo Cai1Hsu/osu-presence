@@ -388,8 +388,8 @@ public partial class WindowsNotifications : Drawable
         unreadCount.BindValueChanged(v => MaybeNewNotificationsPosted(), true);
     }
 
-    private HashSet<OsuNotification> frontNotifications = new();
-    private HashSet<OsuNotification> backNotifications = new();
+    private readonly HashSet<OsuNotification> frontNotifications = new();
+    private readonly HashSet<OsuNotification> backNotifications = new();
 
     private void MaybeNewNotificationsPosted()
     {
