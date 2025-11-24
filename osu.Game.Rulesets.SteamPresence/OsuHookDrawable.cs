@@ -7,6 +7,7 @@ using osu.Framework.Logging;
 using osu.Framework.Testing;
 using osu.Framework.Threading;
 using osu.Game.Configuration;
+using osu.Game.Rulesets.SteamPresence.Notifications.Windows;
 
 namespace osu.Game.Rulesets.SteamPresence;
 
@@ -37,6 +38,8 @@ public partial class OsuHookDrawable : CompositeDrawable
 
         // use the game's scheduler to ensure code executed on the update thread
         var scheduler = GetScheduler(game);
+
+        scheduler.Add(() => game.InjectDependency(out _, () => new WindowsNotifications()));
 
         if (autoStart)
         {
