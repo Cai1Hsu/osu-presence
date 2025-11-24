@@ -284,7 +284,10 @@ public partial class WindowsNotifications : Drawable
     private void OnProgressNotification(ToastProperty toast, ProgressNotification _progressNotification)
     {
         toast.Builder.AddProgressBar()
-            .AddButton(new ToastButtonDismiss("Hide"));
+            .AddButton(new ToastButtonDismiss("Hide"))
+            // Progress toasts are usually long-lived, so we set them as reminders.
+            // also non-default scenario allows multiple toasts to be shown simultaneously.
+            .SetToastScenario(ToastScenario.Reminder);
     }
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Avatar")]
