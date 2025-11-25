@@ -39,7 +39,27 @@ public partial class OsuHookDrawable : CompositeDrawable
         // use the game's scheduler to ensure code executed on the update thread
         var scheduler = GetScheduler(game);
 
-        scheduler.Add(() => game.InjectDependency(out _, () => new WindowsNotifications()));
+        scheduler.Add(() =>
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                Version requiredVersion = new Version(10, 0, 18362, 0);
+                Version runningVersion = Environment.OSVersion.Version;
+
+                if (runningVersion >= requiredVersion)
+                {
+                    game.InjectDependency(out _, () => new WindowsNotifications());
+                }
+                else
+                {
+                    Logger.Log($"Windows notifications require at least Windows 10 version 1903 (build 18362). Current version: {runningVersion}", LoggingTarget.Runtime, LogLevel.Important);
+                }
+            }
+            else
+            {
+                Logger.Log("Notifications are only supported on Windows.", LoggingTarget.Runtime, LogLevel.Important);
+            }
+        });
 
         if (autoStart)
         {
