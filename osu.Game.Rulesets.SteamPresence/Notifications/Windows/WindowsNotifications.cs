@@ -149,12 +149,8 @@ public partial class WindowsNotifications : Drawable
 
             void display()
             {
-                toastNotification.SuppressPopup = windowMode.Value switch
-                {
-                    WindowMode.Fullscreen => true,
-                    WindowMode.Borderless when host.IsActive.Value => true,
-                    _ => false,
-                };
+                toastNotification.SuppressPopup = windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless 
+                    && host.IsActive.Value;
 
                 notifier?.Show(toastNotification);
             }
