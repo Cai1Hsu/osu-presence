@@ -108,7 +108,7 @@ public partial class WindowsNotifications : Drawable
 
         toastInfo.IsDefaultScenario = isDefaultScenario;
 
-        void show()
+        void show(Action<ToastNotification>? onDisplayed = null)
         {
             var toastNotification = new ToastNotification(xml);
             toastNotification.Tag = toastInfo.Tag;
@@ -126,7 +126,7 @@ public partial class WindowsNotifications : Drawable
             toastNotification.Activated += (t, _) =>
             {
                 if (prop.KeepOnScreen)
-                    show(); // re-show the toast if it was meant to be kept on screen
+                    show(t => t.SuppressPopup = true); // keep a copy in the notification center
                 else
                     expire(t);
             };
@@ -137,6 +137,9 @@ public partial class WindowsNotifications : Drawable
                 {
                     case ToastDismissalReason.UserCanceled when prop.KeepOnScreen:
                         prop.KeepOnScreen = false;
+                        break;
+
+                    case ToastDismissalReason.UserCanceled:
                         expire(t);
                         break;
 
@@ -151,6 +154,8 @@ public partial class WindowsNotifications : Drawable
             {
                 toastNotification.SuppressPopup = windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless 
                     && host.IsActive.Value;
+
+                onDisplayed?.Invoke(toastNotification);
 
                 notifier?.Show(toastNotification);
             }
