@@ -30,7 +30,7 @@ public partial class WindowsNotifications : Drawable
     private readonly Dictionary<Guid, WindowsToast> notifications = new();
     private readonly Dictionary<OsuNotification, Guid> notificationLookup = new();
     private readonly Dictionary<Guid, Action> activationLookup = new();
-    
+
     private DefaultToastLifecycleManager defaultToastManager = null!;
 
     private class ToastProperty(ToastContentBuilder builder)
@@ -135,7 +135,7 @@ public partial class WindowsNotifications : Drawable
             {
                 switch (e.Reason)
                 {
-                    case ToastDismissalReason.UserCanceled:
+                    case ToastDismissalReason.UserCanceled when prop.KeepOnScreen:
                         prop.KeepOnScreen = false;
                         expire(t);
                         break;
@@ -144,8 +144,6 @@ public partial class WindowsNotifications : Drawable
                         break;
                 }
             };
-
-            toastNotification.ExpiresOnReboot = false;
 
             toastNotification.Failed += (t, _) => expire(t);
 
@@ -298,53 +296,57 @@ public partial class WindowsNotifications : Drawable
 
     private HttpClient httpClient = new();
 
-    private HashSet<int> DownloadedAvatars = new();
+    private readonly static string avatar_cache_folder = Path.Combine(Path.GetTempPath(), "osu", "avatars");
+    private readonly HashSet<int> downloaded_avatars = new();
+
+    private async Task<string?> DownloadAvatar(string? url, int userId)
+    {
+        url ??= userId switch
+        {
+            _ when userId < 0 => @"https://a.ppy.sh/",
+            _ => $@"https://a.ppy.sh/{userId}",
+        };
+
+        // TODO: consider use the database's folder
+        Directory.CreateDirectory(avatar_cache_folder);
+
+        var avatarFileName = userId > 0 ? userId.ToString() : "default";
+
+        avatarFileName = Path.Combine(avatar_cache_folder, $"{avatarFileName}.png");
+
+        if ((userId < 0 || downloaded_avatars.Contains(userId))
+            && File.Exists(avatarFileName))
+            return avatarFileName;
+
+        using var response = await httpClient.GetAsync(url);
+
+        if (response.IsSuccessStatusCode)
+        {
+            using var fs = new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.Read);
+            using var contentStream = await response.Content.ReadAsStreamAsync();
+            await contentStream.CopyToAsync(fs);
+
+            if (File.Exists(avatarFileName))
+            {
+                downloaded_avatars.Add(userId);
+
+                return avatarFileName;
+            }
+        }
+
+        return null;
+    }
 
     private async Task OnUserAvatarNotification(ToastProperty prop, UserAvatarNotification notification)
     {
         var avatar = GetDrawableAvatar(notification);
         var user = GetIUser(avatar);
 
-        string avatarUrl = user is null ?
-            @"https://a.ppy.sh/" :
-            (user as APIUser)?.AvatarUrl ?? $@"https://a.ppy.sh/{user.OnlineID}";
+        string? avatarUrl = (user as APIUser)?.AvatarUrl;
+        string? avatarFileName = await DownloadAvatar(avatarUrl, user.OnlineID) ??
+            await DownloadAvatar(null, -1);
 
-        // Download the avatar in temp folder to work around Windows toast image requirements.
-        var tempFolder = Path.Combine(Path.GetTempPath(), "osu", "avatars");
-        Directory.CreateDirectory(tempFolder);
-
-        var id = user?.OnlineID.ToString() ?? "default";
-
-        var avatarFileName = Path.Combine(tempFolder, $"{id}.png");
-
-        if (id != "default"
-            || !File.Exists(avatarFileName)
-            || !DownloadedAvatars.Contains(user?.OnlineID ?? -1))
-        {
-            using var response = await httpClient.GetAsync(avatarUrl);
-
-            if (response.IsSuccessStatusCode)
-            {
-                try
-                {
-                    using var fs = new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.None);
-                    using var contentStream = await response.Content.ReadAsStreamAsync();
-                    await contentStream.CopyToAsync(fs);
-
-                    DownloadedAvatars.Add(user?.OnlineID ?? -1);
-                }
-                catch (Exception)
-                {
-                    avatarFileName = Path.Combine(tempFolder, "default.png");
-                }
-            }
-            else
-            {
-                avatarFileName = Path.Combine(tempFolder, "default.png");
-            }
-        }
-
-        if (!File.Exists(avatarFileName))
+        if (string.IsNullOrEmpty(avatarFileName))
             return;
 
         prop.Builder.AddAppLogoOverride(new Uri(avatarFileName), ToastGenericAppLogoCrop.Circle);
@@ -694,23 +696,28 @@ public partial class WindowsNotifications : Drawable
 
             try
             {
-                // make a copy and send it to notification center without popup
-                var shadow = new ToastNotification(current.ToastNotification.Content)
+                // the notification may have expired already
+                if (owner.notifications.ContainsKey(current.Id))
                 {
-                    Tag = Guid.NewGuid().ToString(), // prevent re-hiding
-                    Group = current.ToastNotification.Group,
-                    SuppressPopup = true,
-                    Priority = ToastNotificationPriority.Default,
-                    ExpiresOnReboot = false,
-                    Data = current.ToastNotification.Data,
-                };
+                    // make a copy and send it to notification center without popup
+                    var shadow = new ToastNotification(current.ToastNotification.Content)
+                    {
+                        Tag = Guid.NewGuid().ToString(), // prevent re-hiding
+                        Group = current.ToastNotification.Group,
+                        SuppressPopup = true,
+                        Priority = current.ToastNotification.Priority,
+                        ExpiresOnReboot = current.ToastNotification.ExpiresOnReboot,
+                        Data = current.ToastNotification.Data,
+                    };
 
-                notifier?.Hide(current.ToastNotification);
+                    notifier?.Hide(current.ToastNotification);
 
-                // Although the document says Hide method sends the toast to notification center,
-                // in practice it just removes the toast.
-                // So we send a shadow toast to notification center to simulate the expected behavior.
-                notifier?.Show(shadow);
+                    // Although the document says Hide method sends the toast to notification center,
+                    // in practice it just removes the toast.
+                    // So we send a shadow toast to notification center to simulate the expected behavior.
+                    notifier?.Show(shadow);
+                }
+
             }
             catch (Exception) { }
 
