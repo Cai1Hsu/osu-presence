@@ -299,6 +299,7 @@ public partial class WindowsNotifications : Drawable
 
     private readonly static string avatar_cache_folder = Path.Combine(Path.GetTempPath(), "osu", "avatars");
     private readonly HashSet<int> downloaded_avatars = new();
+    private readonly SemaphoreSlim avatar_download_semaphore = new(1, 1);
 
     private async Task<string?> DownloadAvatar(string? url, int userId)
     {
@@ -319,23 +320,33 @@ public partial class WindowsNotifications : Drawable
             && File.Exists(avatarFileName))
             return avatarFileName;
 
-        using var response = await httpClient.GetAsync(url);
+        // serialize avatar downloads to avoid duplicate downloads and limit bandwidth usage
+        await avatar_download_semaphore.WaitAsync();
 
-        if (response.IsSuccessStatusCode)
+        try
         {
-            using var fs = new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.Read);
-            using var contentStream = await response.Content.ReadAsStreamAsync();
-            await contentStream.CopyToAsync(fs);
+            using var response = await httpClient.GetAsync(url);
 
-            if (File.Exists(avatarFileName))
+            if (response.IsSuccessStatusCode)
             {
-                downloaded_avatars.Add(userId);
+                using var fs = new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.Read);
+                using var contentStream = await response.Content.ReadAsStreamAsync();
+                await contentStream.CopyToAsync(fs);
 
-                return avatarFileName;
+                if (File.Exists(avatarFileName))
+                {
+                    downloaded_avatars.Add(userId);
+
+                    return avatarFileName;
+                }
             }
-        }
 
-        return null;
+            return null;
+        }
+        finally
+        {
+            avatar_download_semaphore.Release();
+        }
     }
 
     private async Task OnUserAvatarNotification(ToastProperty prop, UserAvatarNotification notification)
