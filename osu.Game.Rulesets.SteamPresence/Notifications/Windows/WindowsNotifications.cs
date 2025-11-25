@@ -340,11 +340,12 @@ public partial class WindowsNotifications : Drawable
     private async Task OnUserAvatarNotification(ToastProperty prop, UserAvatarNotification notification)
     {
         var avatar = GetDrawableAvatar(notification);
-        var user = GetIUser(avatar);
+        Users.IUser? user = GetIUser(avatar);
+
+        int onlineID = user?.OnlineID ?? -1;
 
         string? avatarUrl = (user as APIUser)?.AvatarUrl;
-        string? avatarFileName = await DownloadAvatar(avatarUrl, user.OnlineID) ??
-            await DownloadAvatar(null, -1);
+        string? avatarFileName = await DownloadAvatar(avatarUrl, onlineID) ?? await DownloadAvatar(null, -1);
 
         if (string.IsNullOrEmpty(avatarFileName))
             return;
