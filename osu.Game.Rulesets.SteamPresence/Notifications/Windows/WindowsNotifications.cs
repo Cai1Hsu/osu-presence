@@ -18,6 +18,7 @@ using NotificationData = Windows.UI.Notifications.NotificationData;
 using Windows.UI.Notifications;
 using osu.Framework.Configuration;
 using osu.Framework.Localisation;
+using osu.Framework.Logging;
 
 namespace osu.Game.Rulesets.SteamPresence.Notifications.Windows;
 
@@ -152,7 +153,7 @@ public partial class WindowsNotifications : Drawable
 
             void display()
             {
-                toastNotification.SuppressPopup = windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless 
+                toastNotification.SuppressPopup = windowMode.Value is WindowMode.Fullscreen or WindowMode.Borderless
                     && host.IsActive.Value;
 
                 onDisplayed?.Invoke(toastNotification);
@@ -329,24 +330,61 @@ public partial class WindowsNotifications : Drawable
 
             if (response.IsSuccessStatusCode)
             {
-                using var fs = new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.Read);
-                using var contentStream = await response.Content.ReadAsStreamAsync();
-                await contentStream.CopyToAsync(fs);
+                using var fs = await tryOpenFileStream(() => new FileStream(avatarFileName, FileMode.Create, FileAccess.Write, FileShare.Read));
 
-                if (File.Exists(avatarFileName))
+                if (fs is not null)
                 {
-                    downloaded_avatars.Add(userId);
+                    using var contentStream = await response.Content.ReadAsStreamAsync();
+                    await contentStream.CopyToAsync(fs);
 
-                    return avatarFileName;
+                    downloaded_avatars.Add(userId);
                 }
             }
-
-            return null;
         }
         finally
         {
             avatar_download_semaphore.Release();
         }
+
+        // the old avatar may exists, we can use the old one even if the download failed
+        if (File.Exists(avatarFileName))
+        {
+            return avatarFileName;
+        }
+
+        return null;
+    }
+
+    private async Task<FileStream?> tryOpenFileStream(Func<FileStream> create)
+    {
+        const int max_retries = 3;
+
+        int retry = 0;
+
+        Exception? exception = null;
+
+        while (retry++ < max_retries)
+        {
+            try
+            {
+                return create();
+            }
+            catch (IOException ex)
+            {
+                exception = ex;
+
+                // the file may being read by the notification system, wait and retry
+                await Task.Delay(100);
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+        }
+
+        Logger.Log($"Failed to write to file: {exception?.Message} after {max_retries} attempts", LoggingTarget.Runtime, LogLevel.Error, false);
+
+        return null;
     }
 
     private async Task OnUserAvatarNotification(ToastProperty prop, UserAvatarNotification notification)
