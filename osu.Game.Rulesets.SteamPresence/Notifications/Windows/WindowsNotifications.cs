@@ -50,6 +50,9 @@ public partial class WindowsNotifications : Drawable
 
     public async Task OnNotification(OsuNotification notification)
     {
+        if (notification is ISkipPopNotification)
+            return;
+
         ToastProperty prop = new ToastProperty(new ToastContentBuilder());
 
         var toastInfo = new WindowsToast(prop, notification);
@@ -384,8 +387,19 @@ public partial class WindowsNotifications : Drawable
 
         Logger.Log($"Failed to write to file: {exception?.Message} after {max_retries} attempts", LoggingTarget.Runtime, LogLevel.Error, false);
 
+        Scheduler.Add(() => notificationOverlay.Post(new SkipPopNotification()
+        {
+            Text = "Failed to write avatar to local cache. Check logs for details.",
+            Activated = () => storage.PresentFileExternally(Path.Combine("logs", Logger.GetLogger(LoggingTarget.Runtime).Filename))
+        }));
+
         return null;
     }
+
+    // a marker type for notifying the user something without popping a toast
+    interface ISkipPopNotification { }
+
+    private partial class SkipPopNotification : SimpleNotification, ISkipPopNotification { }
 
     private async Task OnUserAvatarNotification(ToastProperty prop, UserAvatarNotification notification)
     {
@@ -402,6 +416,9 @@ public partial class WindowsNotifications : Drawable
 
         prop.Builder.AddAppLogoOverride(new Uri(avatarFileName), ToastGenericAppLogoCrop.Circle);
     }
+
+    [Resolved]
+    private Storage storage { get; set; } = null!;
 
     [Resolved]
     private Clipboard clipboard { get; set; } = null!;
