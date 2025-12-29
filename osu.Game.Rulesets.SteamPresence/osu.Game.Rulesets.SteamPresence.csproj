@@ -18,7 +18,7 @@
     <ProjectReference Include="..\Steamworks.NativeDlls\Steamworks.NativeDlls.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
-    <PackageReference Include="ppy.osu.Game" Version="2025.1029.0">
+    <PackageReference Include="ppy.osu.Game" Version="2025.1209.0">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>

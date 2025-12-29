@@ -1,10 +1,12 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
+using osu.Framework.Platform;
 using osu.Game.Overlays;
 using osu.Game.Overlays.Dialog;
 using osu.Game.Overlays.Settings;
@@ -21,6 +23,9 @@ public partial class PresenceSettings : RulesetSettingsSubsection
 
     [Resolved]
     private OsuGame game { get; set; } = null!;
+
+    [Resolved]
+    private GameHost host { get; set; } = null!;
 
     private Bindable<bool> autoStart = null!;
 
@@ -55,6 +60,23 @@ public partial class PresenceSettings : RulesetSettingsSubsection
                 Action = tryLaunchSteamPresence,
                 Keywords = new[] { "steam", "presence", "status", "launch" },
             },
+            new SettingsButton()
+            {
+                Text = "Unlock frame rate limit",
+                Action = () =>
+                {
+                    try
+                    {
+                        host.AllowBenchmarkUnlimitedFrames = true;
+                        typeof(GameHost).GetMethod("updateFrameSyncMode", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+                            .Invoke(host, null);
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Log($"Failed to unlock frame rate limit: {e.Message}", LoggingTarget.Runtime, LogLevel.Error);
+                    }
+                }
+            }
         };
 
         this.presenceProvider = presenceProvider;
